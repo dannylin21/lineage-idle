@@ -27,6 +27,40 @@
         .set-active-row { background: linear-gradient(90deg, rgba(88,28,135,0.4) 0%, rgba(24,24,27,0) 100%); border-left: 3px solid #c084fc; }
         .modal-overlay { background-color: rgba(0, 0, 0, 0.9); backdrop-filter: blur(2px); }
         .spell-grid-item { background-color: #1f2937; border: 1px solid #3f3f46; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; text-align: center; min-height: 80px; }
+
+        /* 手機版底部導覽列：桌機隱藏 */
+        #mobile-nav { display: none; }
+
+        /* ===== 手機版排版 (桌機不受影響) ===== */
+        @media (max-width: 768px) {
+            body { font-size: 1rem; padding: 0; height: 100dvh; }
+            #main-ui { flex-direction: column; gap: 0; padding-bottom: 60px; }
+            /* 三欄改為全寬，一次只顯示一個面板 */
+            #col-char, #col-action, #col-combat {
+                width: 100%; height: auto; flex: 1 1 auto; min-height: 0;
+                gap: 8px; padding: 6px; display: none;
+            }
+            #main-ui.mv-char   #col-char   { display: flex; }
+            #main-ui.mv-action #col-action { display: flex; }
+            #main-ui.mv-combat #col-combat { display: flex; }
+
+            /* 底部固定導覽列 */
+            #mobile-nav {
+                display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+                height: 56px; background-color: #09090b; border-top: 1px solid #3f3f46;
+            }
+            .mnav-btn {
+                flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+                gap: 2px; background: transparent; border: none; color: #9ca3af;
+                font-family: inherit; font-size: 0.7rem; cursor: pointer; padding: 4px 0;
+            }
+            .mnav-btn i { font-size: 1.2rem; }
+            .mnav-btn.active { color: #facc15; }
+
+            /* 細項微調，避免內容溢出 */
+            .bar-container { width: 100%; }
+            .log-area { font-size: 0.9rem; }
+        }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden flex flex-col p-2">
@@ -83,9 +117,9 @@
     </div>
 
     <!-- 主遊戲介面 -->
-    <div id="main-ui" class="flex-1 flex gap-3 hidden h-full">
+    <div id="main-ui" class="flex-1 flex gap-3 hidden h-full mv-char">
         <!-- 左側：角色狀態 -->
-        <div class="w-1/4 flex flex-col gap-3 h-full">
+        <div id="col-char" class="w-1/4 flex flex-col gap-3 h-full">
             <div class="panel-border p-5 flex-shrink-0 rounded-md">
                 <div class="c-title text-2xl mb-3 border-b border-gray-800 pb-2">角色狀態</div>
                 <div class="text-xl mb-2">等級 <span id="ui-level" class="c-warn font-bold">1</span></div>
@@ -117,7 +151,7 @@
         </div>
 
         <!-- 中間：操作區 -->
-        <div class="w-2/4 flex flex-col h-full">
+        <div id="col-action" class="w-2/4 flex flex-col h-full">
             <div class="flex text-lg items-end gap-1 px-1">
                 <button class="tab-btn active" onclick="game.switchTab('inv')">裝備與背包</button>
                 <button class="tab-btn" onclick="game.switchTab('magic')">已學習魔法</button>
@@ -192,7 +226,7 @@
         </div>
 
         <!-- 右側：戰鬥區 -->
-        <div class="w-1/4 flex flex-col gap-3 h-full">
+        <div id="col-combat" class="w-1/4 flex flex-col gap-3 h-full">
             <div class="panel-border p-4 flex-shrink-0 flex justify-between items-center rounded-md">
                 <span class="c-title text-xl">目前位置:</span>
                 <select id="map-select" class="bg-black c-sys border border-gray-600 py-1 px-2 rounded outline-none cursor-pointer" onchange="game.changeMap(this.value)"></select>
@@ -209,6 +243,13 @@
                 <div id="combat-log" class="log-area flex-1 custom-scroll"></div>
             </div>
         </div>
+    </div>
+
+    <!-- 手機版底部導覽列 (僅在小螢幕顯示) -->
+    <div id="mobile-nav">
+        <button type="button" class="mnav-btn active" data-view="char" onclick="game.switchMobileView('char')"><i class="fas fa-user"></i><span>角色</span></button>
+        <button type="button" class="mnav-btn" data-view="action" onclick="game.switchMobileView('action')"><i class="fas fa-box-open"></i><span>物品</span></button>
+        <button type="button" class="mnav-btn" data-view="combat" onclick="game.switchMobileView('combat')"><i class="fas fa-khanda"></i><span>戰鬥</span></button>
     </div>
 
 <script>
@@ -764,6 +805,13 @@ const game = {
         event.target.classList.add('active');
         if(tabId === 'inv') this.renderInventory();
         if(tabId === 'magic') this.renderSkills();
+    },
+
+    switchMobileView: function(view) {
+        const mainUi = document.getElementById('main-ui');
+        mainUi.classList.remove('mv-char', 'mv-action', 'mv-combat');
+        mainUi.classList.add('mv-' + view);
+        document.querySelectorAll('.mnav-btn').forEach(el => el.classList.toggle('active', el.dataset.view === view));
     },
 
     adjustStat: function(stat, amount) {
