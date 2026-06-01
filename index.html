@@ -86,6 +86,7 @@
             <div id="start-menu" class="flex flex-col gap-4 mb-6">
                 <button class="btn-ui py-3 text-xl w-full c-success" onclick="game.showCreation()">新冒險 (分配能力點數)</button>
                 <button id="btn-load-game" class="btn-ui py-3 text-xl w-full c-info" onclick="game.loadGame()">讀取存檔</button>
+                <button class="btn-ui py-3 text-xl w-full c-warn" onclick="game.openImportModal()">匯入存檔 (跨裝置)</button>
             </div>
             <div id="creation-menu" class="hidden">
                 <div class="c-sys mb-6 text-center text-lg">請分配您的初始能力點數。</div>
@@ -117,6 +118,17 @@
             <div class="c-sys mb-4">請選擇要用來強化 <span id="enchant-target-name" class="font-bold text-xl"></span> 的卷軸：</div>
             <div id="enchant-scroll-list" class="space-y-3 mb-6 max-h-56 overflow-y-auto custom-scroll pr-2"></div>
             <div class="text-right border-t border-gray-700 pt-4"><button class="btn-ui py-2 px-6" onclick="game.closeEnchantModal()">取消</button></div>
+        </div>
+    </div>
+
+    <!-- 存檔轉移 (匯出/匯入) Modal -->
+    <div id="transfer-modal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay hidden">
+        <div class="panel-border p-6 max-w-md w-full rounded-md">
+            <h3 id="transfer-title" class="text-2xl c-warn mb-3 border-b border-gray-700 pb-2 font-bold">存檔轉移</h3>
+            <div id="transfer-desc" class="c-sys mb-3 text-base"></div>
+            <textarea id="transfer-text" class="w-full h-40 bg-black border border-gray-600 text-white text-sm p-2 rounded custom-scroll resize-none" spellcheck="false"></textarea>
+            <input type="file" id="transfer-file" accept=".txt,text/plain" class="hidden" onchange="game.importFromFile(this)">
+            <div id="transfer-actions" class="flex gap-3 mt-4"></div>
         </div>
     </div>
 
@@ -230,9 +242,23 @@
                             </div>
                         </div>
                         <div class="c-title mb-3 border-b border-gray-800 pb-2 text-xl">系統存檔</div>
-                        <div class="flex gap-4 c-sys bg-gray-900 p-4 rounded border border-gray-800">
-                             <button class="btn-ui flex-1 py-2 c-success border-green-800 hover:bg-green-900 !text-lg" onclick="game.saveGame()">儲存進度</button>
-                             <button class="btn-ui flex-1 py-2 c-err border-red-800 hover:bg-red-900 !text-lg" onclick="game.deleteSave()">刪除存檔</button>
+                        <div class="c-sys bg-gray-900 p-4 rounded border border-gray-800 mb-4">
+                            <div class="flex gap-4 mb-4">
+                                 <button class="btn-ui flex-1 py-2 c-success border-green-800 hover:bg-green-900 !text-lg" onclick="game.saveGame()">儲存進度</button>
+                                 <button class="btn-ui flex-1 py-2 c-err border-red-800 hover:bg-red-900 !text-lg" onclick="game.deleteSave()">刪除存檔</button>
+                            </div>
+                            <div class="flex items-center gap-2 border-t border-gray-700 pt-4">
+                                <input type="checkbox" id="cfg-auto-load" onchange="game.toggleAutoLoad(this.checked)" class="w-5 h-5 accent-gray-500 cursor-pointer" checked>
+                                <label for="cfg-auto-load" class="cursor-pointer hover:text-white">進入遊戲時自動讀取存檔</label>
+                            </div>
+                        </div>
+                        <div class="c-title mb-3 border-b border-gray-800 pb-2 text-xl">跨裝置存檔轉移</div>
+                        <div class="c-sys bg-gray-900 p-4 rounded border border-gray-800">
+                            <div class="text-sm c-sys mb-3 italic">在這台「匯出存檔」取得存檔碼，到另一台裝置（手機/電腦）首頁的「匯入存檔」貼上，即可繼續同一份進度。</div>
+                            <div class="flex gap-4">
+                                <button class="btn-ui flex-1 py-2 c-info border-blue-800 hover:bg-blue-900 !text-lg" onclick="game.openExportModal()">匯出存檔</button>
+                                <button class="btn-ui flex-1 py-2 c-warn !text-lg" onclick="game.openImportModal()">匯入存檔</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -666,7 +692,21 @@ const game = {
 
     init: function() {
         this.renderMapSelect();
-        this.checkSaveFile();
+        const cb = document.getElementById('cfg-auto-load');
+        if (cb) cb.checked = this.isAutoLoadEnabled();
+        // 進入遊戲時自動讀取存檔（若已開啟且有存檔）
+        if (this.isAutoLoadEnabled() && localStorage.getItem('lineageIdleSave')) {
+            this.loadGame();
+        } else {
+            this.checkSaveFile();
+        }
+    },
+    isAutoLoadEnabled: function() {
+        return localStorage.getItem('lineageIdleAutoLoad') !== '0';
+    },
+    toggleAutoLoad: function(checked) {
+        localStorage.setItem('lineageIdleAutoLoad', checked ? '1' : '0');
+        this.logSystem('已' + (checked ? '開啟' : '關閉') + '「進入遊戲時自動讀取存檔」。');
     },
 
     renderMapSelect: function() {
@@ -691,19 +731,92 @@ const game = {
         document.getElementById('creation-menu').classList.add('hidden');
         document.getElementById('start-menu').classList.remove('hidden');
     },
-    writeSave: function() {
-        const saveData = {
+    buildSaveData: function() {
+        return {
             level: this.state.level, exp: this.state.exp, adena: this.state.adena,
             hp: this.state.hp, maxHp: this.state.maxHp, mp: this.state.mp, maxMp: this.state.maxMp,
             baseStats: this.state.baseStats, bonusPoints: this.state.bonusPoints,
             inventory: this.state.inventory, equipment: this.state.equipment, spells: this.state.spells,
             settings: this.state.settings, currentMap: this.state.currentMap, antarasDeadUntil: this.state.antarasDeadUntil
         };
-        localStorage.setItem('lineageIdleSave', JSON.stringify(saveData));
+    },
+    writeSave: function() {
+        localStorage.setItem('lineageIdleSave', JSON.stringify(this.buildSaveData()));
     },
     saveGame: function() {
         this.writeSave();
         this.logSystem('遊戲進度已儲存。', 'reward');
+    },
+
+    // ===== 跨裝置存檔轉移（匯出 / 匯入）=====
+    encodeSave: function(obj) {
+        return 'LIA1:' + btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+    },
+    decodeSave: function(str) {
+        str = (str || '').trim();
+        if (str.indexOf('LIA1:') === 0) str = str.slice(5);
+        try { return JSON.parse(decodeURIComponent(escape(atob(str)))); }
+        catch (e) { return JSON.parse(str); } // 容許直接貼上 JSON
+    },
+    openExportModal: function() {
+        const code = this.encodeSave(this.buildSaveData());
+        document.getElementById('transfer-title').innerText = '匯出存檔';
+        document.getElementById('transfer-desc').innerHTML = '複製下面這串存檔碼（或下載成檔案），到另一台裝置首頁的「匯入存檔」貼上即可繼續同一份進度。';
+        const ta = document.getElementById('transfer-text');
+        ta.value = code; ta.readOnly = true;
+        document.getElementById('transfer-actions').innerHTML =
+            '<button class="btn-ui flex-1 py-2 c-success !text-lg" onclick="game.copyTransfer()">複製</button>' +
+            '<button class="btn-ui flex-1 py-2 c-info !text-lg" onclick="game.downloadTransfer()">下載檔案</button>' +
+            '<button class="btn-ui flex-1 py-2 !text-lg" onclick="game.closeTransfer()">關閉</button>';
+        document.getElementById('transfer-modal').classList.remove('hidden');
+    },
+    openImportModal: function() {
+        document.getElementById('transfer-title').innerText = '匯入存檔';
+        document.getElementById('transfer-desc').innerHTML = '貼上另一台裝置匯出的存檔碼，或從檔案載入。<span class="c-err">匯入會覆蓋本機目前的進度。</span>';
+        const ta = document.getElementById('transfer-text');
+        ta.value = ''; ta.readOnly = false; ta.placeholder = '在此貼上存檔碼…';
+        document.getElementById('transfer-actions').innerHTML =
+            '<button class="btn-ui flex-1 py-2 c-info !text-lg" onclick="document.getElementById(\'transfer-file\').click()">從檔案載入</button>' +
+            '<button class="btn-ui flex-1 py-2 c-success !text-lg" onclick="game.doImport()">匯入</button>' +
+            '<button class="btn-ui flex-1 py-2 !text-lg" onclick="game.closeTransfer()">取消</button>';
+        document.getElementById('transfer-modal').classList.remove('hidden');
+    },
+    closeTransfer: function() { document.getElementById('transfer-modal').classList.add('hidden'); },
+    copyTransfer: function() {
+        const ta = document.getElementById('transfer-text');
+        ta.select(); ta.setSelectionRange(0, 99999);
+        if (navigator.clipboard) navigator.clipboard.writeText(ta.value).catch(() => {});
+        try { document.execCommand('copy'); } catch (e) {}
+        alert('已複製存檔碼，貼到另一台裝置的「匯入存檔」即可。');
+    },
+    downloadTransfer: function() {
+        const blob = new Blob([document.getElementById('transfer-text').value], { type: 'text/plain' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'lineage-idle-save.txt';
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(a.href);
+    },
+    importFromFile: function(input) {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = e => { document.getElementById('transfer-text').value = e.target.result; };
+        reader.readAsText(f);
+        input.value = '';
+    },
+    doImport: function() {
+        const raw = document.getElementById('transfer-text').value;
+        if (!raw || !raw.trim()) { alert('請先貼上存檔碼，或從檔案載入。'); return; }
+        let data;
+        try { data = this.decodeSave(raw); } catch (e) { alert('存檔碼無法解析，請確認是否完整複製。'); return; }
+        if (!data || typeof data !== 'object' || data.level === undefined || data.inventory === undefined) {
+            alert('這不是有效的天堂放置版存檔碼。'); return;
+        }
+        if (!confirm('匯入後會覆蓋本機目前的進度，確定要匯入嗎？')) return;
+        localStorage.setItem('lineageIdleSave', JSON.stringify(data));
+        alert('匯入成功！將重新載入遊戲。');
+        location.reload();
     },
     loadGame: function() {
         const savedDataStr = localStorage.getItem('lineageIdleSave');
